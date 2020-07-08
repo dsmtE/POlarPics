@@ -39,17 +39,18 @@ def main(argv):
    # variables
    inputImg = ''
    outputfile = ''
+   outputImg = ''
    verbose = False
 
    # parseArgument
    try:
-      opts, args = getopt.getopt(argv,"hvi:o:",["help", "verbose", "inputImg=","outputfile="])
+      opts, args = getopt.getopt(argv,"hvi:o:",["help", "verbose", "inputImg=","outputfile=", "outputimg="])
    except getopt.GetoptError:
-      print ('extractBitmap.py -i <inputImg> -o <outputfile>')
+      print ('extractBitmap.py -i <input image> -o <output file> --outputimg <optional output image file> ')
       sys.exit(2)
    for opt, arg in opts:
       if opt in ("-h", "--help"):
-         print ('extractBitmap.py -i <inputImg> -o <outputfile>')
+         print ('extractBitmap.py -i <input image> -o <output file> --outputimg <optional output image file> ')
          sys.exit()
       elif opt in ("-v", "--verbose"):
          verbose = True
@@ -57,6 +58,8 @@ def main(argv):
          inputImg = arg
       elif opt in ("-o", "--outputfile"):
          outputfile = arg
+      elif opt in ("--outputimg"):
+         outputImg = arg
 
    if verbose:
       print ('Input file is ', inputImg, " split :", inputImg.split("."))
@@ -90,6 +93,11 @@ def main(argv):
    img = bayerDithering(img, 16)# apply bayer Dithering
 
    img = np.where(img > 0, 0, 1)
+
+   saveImg = Image.fromarray(np.uint8((1-img)*255))
+   # save a image using extension 
+   if outputImg != '': 
+      saveImg.save(outputImg) 
 
    rows, cols = img.shape
    for c in range(cols):
