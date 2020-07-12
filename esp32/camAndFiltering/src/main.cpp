@@ -1,7 +1,5 @@
-#include "esp_camera.h"
 #include <Arduino.h>
-
-// #include "SPIFFS.h"
+#include "esp_camera.h"
 
 #include "FS.h"               // SD Card ESP32
 #include "SD_MMC.h"           // SD Card ESP32
@@ -9,11 +7,12 @@
 #include "soc/soc.h"           // Disable brownour problems
 #include "soc/rtc_cntl_reg.h"  // Disable brownour problems
 
-// #include <WiFi.h>
-#include "img_converters.h"   
-#include "dl_lib_matrix3d.h"  // image processing
+#include <filtering.h>
+
+#include "img_converters.h"
 
 #include "driver/rtc_io.h"
+
 // Pin definition for AI_THINKER
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -33,17 +32,9 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-const char* ssid = "";
-const char* password = "";
-// void startCameraServer();
-
-void startCameraServer();
-
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
   Serial.begin(115200);
-  // Serial.setDebugOutput(true);
-  // Serial.println();
 
   // camera pin configuration
   camera_config_t config;
@@ -78,58 +69,98 @@ void setup() {
     config.jpeg_quality = 12;
     config.fb_count = 1;
   }
-
+  
   // camera init
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
-    Serial.printf("Camera init failed with error 0x%x", err);
+    Serial.printf("[error] Camera init failed with error 0x%x", err);
     return;
   }
 
   // Init SD Card
-  if(!SD_MMC.begin()){
-    Serial.println("SD Card Mount Failed");
+  if(!SD_MMC.begin()) {
+    Serial.println("[error] SD Card Mount Failed");
     return;
   }
   
   uint8_t cardType = SD_MMC.cardType();
-  if(cardType == CARD_NONE){
-    Serial.println("No SD Card attached");
+  if(cardType == CARD_NONE) {
+    Serial.println("[error] No SD Card attached");
     return;
   }
-  
+  // Sensor settings
   sensor_t * s = esp_camera_sensor_get();
-  //drop down frame size for higher initial frame rate
-  // s->set_framesize(s, FRAMESIZE_QVGA);
+  s->set_framesize(s, FRAMESIZE_CIF); // Drop down frame size
 
-  // Take Picture with Camera
+  // Get frame buffer from esp32 camera
   camera_fb_t* fb = esp_camera_fb_get();
+
   if(!fb) {
-    Serial.println("Camera capture failed");
+    Serial.println("[error] Camera capture failed");
     return;
   }
-
-  // Path where new picture will be saved in SD Card
-  const String path = "/picture.jpg";
-
-  // test write img to SD Card
-  fs::FS &fs = SD_MMC; 
-  Serial.printf("Picture file name: %s\n", path.c_str());
   
-  File file = fs.open(path.c_str(), FILE_WRITE);
-  if(!file){
-    Serial.println("Failed to open file in writing mode");
-  } 
-  else {
-    file.write(fb->buf, fb->len); // payload (image), payload length
-    Serial.printf("Saved file to path: %s\n", path.c_str());
-    // EEPROM.write(0, pictureNumber);
-    // EEPROM.commit();
+  // convert frame buffer to matrix
+  Matrix<PIXELFORMAT_RGB> mat(fb);
+  
+  Matrix<uint8_t> grayscale = filtering::convertToGrayscale(mat);
+
+  // Image filtering
+  Matrix<uint8_t> filtered = filtering::errorDiffusion(grayscale);
+
+  fs::FS &fs = SD_MMC;
+
+  // save from fb
+  {
+    
+    File file = fs.open("/fb.jpg", FILE_WRITE);
+    if(!file) {
+      Serial.println("[error] Failed to open file in writing mode.");
+    }
+    else {
+      file.write(fb->buf, fb->len);
+      Serial.printf("[error] File from fb Saved.");
+    }
+    file.close();
   }
-  file.close();
-
-  esp_camera_fb_return(fb); 
   
+  // Release camera FrameBuffer
+  esp_camera_fb_return(fb); 
+
+  {
+    // Jpg conversion
+    uint8_t* jpgBuffer = NULL;
+    size_t jpgBufferLen = 0;
+    fmt2jpg(grayscale.data(), grayscale.len(), grayscale.width(), grayscale.height(), PIXFORMAT_GRAYSCALE, 10, &jpgBuffer, &jpgBufferLen);
+    
+    File file = fs.open("/grayscale.jpg", FILE_WRITE);
+    if(!file) {
+      Serial.println("[error] Failed to open file in writing mode");
+    } 
+    else {
+      file.write(jpgBuffer, jpgBufferLen);
+      Serial.printf("[error] File Saved.");
+    }
+    file.close();
+  }
+
+  {
+    // Jpg conversion
+    uint8_t* jpgBuffer = NULL;
+    size_t jpgBufferLen = 0;
+    fmt2jpg(filtered.data(), filtered.len(), filtered.width(), filtered.height(), PIXFORMAT_GRAYSCALE, 10, &jpgBuffer, &jpgBufferLen);
+    
+    File file = fs.open("/filtered.jpg", FILE_WRITE);
+    if(!file) {
+      Serial.println("[error] Failed to open file in writing mode");
+    } 
+    else {
+      file.write(jpgBuffer, jpgBufferLen);
+      Serial.printf("[error] File Saved.");
+    }
+    file.close();
+  }
+
   // Turns off the ESP32-CAM white on-board LED (flash) connected to GPIO 4
   pinMode(4, OUTPUT);
   digitalWrite(4, HIGH);
@@ -141,58 +172,8 @@ void setup() {
   delay(2000);
   esp_deep_sleep_start();
   Serial.println("This will never be printed");
-  /*
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("");
-  Serial.println("WiFi connected");
-
-  startCameraServer();
-
-  Serial.print("Camera Ready! Use 'http://");
-  Serial.print(WiFi.localIP());
-  Serial.println("' to connect");
-  */
+  
 }
-
-// return NULL pointer if error
-static dl_matrix3du_t* getImageMatrix() {
-    camera_fb_t* fb = NULL;
-
-    // get esp32 framebuffer
-    fb = esp_camera_fb_get();
-    if (!fb) {
-        Serial.println("[Error] Getting camera frame buffer failed.");
-        return NULL;
-    }
-
-    const size_t outWidth = fb->width;
-    const size_t outHeight = fb->height;
-    const size_t outLenght = fb->width * fb->height * 3;
-    Serial.printf("len: %d, width: %d, height: %d\n", outLenght, outWidth, outHeight);
-
-    // allocate matrix buffer
-    dl_matrix3du_t* imageMatrix = dl_matrix3du_alloc(1, outWidth, outHeight, 3);
-    if (!imageMatrix) {
-        // release frame buffer
-        esp_camera_fb_return(fb);
-        Serial.println("dl_matrix3du_alloc failed");
-        return NULL;
-    }
-    uint8_t* outBuffer = imageMatrix->item;
-    // Load img and store it into our buffer
-    if(!fmt2rgb888(fb->buf, fb->len, fb->format, outBuffer)){
-        dl_matrix3du_free(imageMatrix);
-        Serial.println("[Error] conversion to rgb888 from framebuffer failed.");
-        return NULL;
-    }
-    return imageMatrix;
-}
-
 
 void loop() {
   // put your main code here, to run repeatedly:
