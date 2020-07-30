@@ -1,166 +1,285 @@
-#include <Arduino.h>
+#include <Arduino.h> // Core
 
-#include <SPI.h>
-#include <TFT_eSPI.h> // Hardware-specific library
+#include "esp_camera.h" // Cam
 
-TFT_eSPI tft = TFT_eSPI();       // Invoke custom library
+#include <TFT_eSPI.h> // Graphics and font library for ILI9341 driver chip
 
-// Maximum number of generations until the screen is refreshed
-#define MAX_GEN_COUNT 1000
+#include <stdexcept>
+#include <string.h>
+#include <array>
+#include <string>
+#include <vector>
 
-// The ESP8266 has plenty of memory so we can create a large array
-// 2 x 2 pixel cells, array size = 5120 bytes per array, runs fast
-#define GRIDX 80 // 320/4
-#define GRIDY 60 // 240/4
-#define CELLXY 4
+// Define index for cam options
+#define CAM_OPTION_BRIGHTNESS  0
+#define CAM_OPTION_CONTRAST  1
+#define CAM_OPTION_SATURATION  2
+#define CAM_OPTION_SPECIAL_EFFECT  3
+#define CAM_OPTION_WHITEBAL  4
+#define CAM_OPTION_AWB_GAIN  5
+#define CAM_OPTION_WB_MODE  6
+#define CAM_OPTION_EXPOSURE_CTRL  7
+#define CAM_OPTION_AEC2  8
+#define CAM_OPTION_AE_LEVEL  9
+#define CAM_OPTION_AEC_VALUE  10
+#define CAM_OPTION_GAIN_CTRL  11
+#define CAM_OPTION_AGC_GAIN  12
+#define CAM_OPTION_GAINCEILING  13
+#define CAM_OPTION_BPC  14
+#define CAM_OPTION_WPC  15
+#define CAM_OPTION_RAW_GMA  16
+#define CAM_OPTION_LENC  17
+#define CAM_OPTION_HMIRROR  18
+#define CAM_OPTION_VFLIP  19
+#define CAM_OPTION_DCW  20
+#define CAM_OPTION_COLORBAR  21
 
+// use enum as index for selectedOptions
+/*
+enum ECamOption {
+    brightness = 0,
+    contrast = 1,
+    saturation = 2,
+    special_effect = 3,
+    whitebal = 4,
+    awb_gain = 5,
+    wb_mode = 6,
+    exposure_ctrl = 7,
+    aec2 = 8,
+    ae_level = 9,
+    aec_value = 10,
+    gain_ctrl = 11,
+    agc_gain = 12,
+    gainceiling = 13,
+    bpc = 14,
+    wpc = 15,
+    raw_gma = 16,
+    lenc = 17,
+    hmirror = 18,
+    vflip = 19,
+    dcw = 20,
+    colorbar = 21
+};
+*/
 
-#define GEN_DELAY 10 // Set a delay between each generation to slow things down
+std::string optionToString(int option) {
+    switch (option) {
+        case CAM_OPTION_BRIGHTNESS :
+            return "brightness";
+        case CAM_OPTION_CONTRAST :
+                return "contrast";
+        case CAM_OPTION_SATURATION :
+                return "saturation";
+        case CAM_OPTION_SPECIAL_EFFECT :
+                return "special effect";
+        case CAM_OPTION_WHITEBAL :
+                return "white balance";
+        case CAM_OPTION_AWB_GAIN :
+                return "awb gain";
+        case CAM_OPTION_WB_MODE :
+                return "wb_mode";
+        case CAM_OPTION_EXPOSURE_CTRL :
+                return "exposure_ctrl";
+        case CAM_OPTION_AEC2 :
+                return "aec2";
+        case CAM_OPTION_AE_LEVEL :
+                return "ae_level";
+        case CAM_OPTION_AEC_VALUE :
+                return "aec_value";
+        case CAM_OPTION_GAIN_CTRL :
+                return "gain_ctrl";
+        case CAM_OPTION_AGC_GAIN :
+                return "agc_gain";
+        case CAM_OPTION_GAINCEILING :
+                return "gainceiling";
+        case CAM_OPTION_BPC :
+                return "bpc";
+        case CAM_OPTION_WPC :
+                return "wpc";
+        case CAM_OPTION_RAW_GMA :
+                return "raw_gma";
+        case CAM_OPTION_LENC :
+                return "lenc";
+        case CAM_OPTION_HMIRROR :
+                return "hmirror";
+        case CAM_OPTION_VFLIP :
+                return "vflip";
+        case CAM_OPTION_DCW :
+                return "dcw";
+        case CAM_OPTION_COLORBAR :
+                return "colorbar";
+        default:
+           throw std::runtime_error("Error sensor setting undefined");
+            break;
+    }
+}
 
-//Current grid and newgrid arrays are needed
-uint8_t grid[GRIDX][GRIDY];
+const std::array<std::vector<std::pair<std::string, int>>, 22> availableValuesByOptions {{ 
+    {{"-2", -2}, {"-1", -1}, {"0", 0}, {"1", 1}, {"2", 2}}, // brightness (-2 to 2)
+    {{"-2", -2}, {"-1", -1}, {"0", 0}, {"1", 1}, {"2", 2}}, // contrast (-2 to 2)
+    {{"-2", -2}, {"-1", -1}, {"0", 0}, {"1", 1}, {"2", 2}}, // saturation (-2 to 2)
+    {{"No Effect", 0}, {"Negative", 1}, {"Grayscale", 2}, {"Red Tint", 3}, {"Green Tint", 4}, {"Blue Tint", 5}, {"Sepia", 6}}, // special_effect (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
+    {{"disable", 0}, {"enable", 1}}, // whitebal (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}}, // awb_gain // 0 = disable , 1 = enable)
+    {{"Auto", 0}, {"Sunny", 1}, {"Cloudy", 2}, {"Office", 3}, {"Home", 4}}, // wb_mod if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
+    {{"disable", 0}, {"enable", 1}}, // exposure_ctrl (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}}, // aec2 (0 = disable , 1 = enable)
+    {{"-2", -2}, {"-1", -1}, {"0", 0}, {"1", 1}, {"2", 2}}, // ae_level (-2 to 2)
+    {{"0", 0}, {"100", 100}, {"200", 200}, {"300", 300}, {"400", 400}, {"500", 500}, {"600", 600}, {"700", 700}, {"800", 800}, {"900", 900}, {"1000", 1000}, {"1100", 1100}, {"1200", 1200}}, // aec_value (0 to 1200)
+    {{"disable", 0}, {"enable", 1}}, // gain_ctrl (0 = disable , 1 = enable)
+    {{"0", 0}, {"3", 3}, {"6", 6}, {"9", 9}, {"12", 12}, {"15", 15}, {"18", 18}, {"21", 21}, {"24", 24}, {"27", 27}, {"30", 30}}, // agc_gain (0 to 30)
+    {{"x2", 0}, {"x4", 1}, {"x8", 2}, {"x16", 3}, {"x32", 4}, {"x64", 5}, {"x128", 6}}, // gainceiling (0 - x2, 1 - x4, 2 - x8, 3 - x16, 4 - x32, 5 - x64, 6 - x128)
+    {{"disable", 0}, {"enable", 1}}, // bpc (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}}, // wpc (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}}, // raw_gma (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}}, // lenc (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}}, // hmirror (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}}, // vflip (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}}, // dcw (0 = disable , 1 = enable)
+    {{"disable", 0}, {"enable", 1}} // colorbar (0 = disable , 1 = enable)
+}};
 
-//The new grid for the next generation
-uint8_t newgrid[GRIDX][GRIDY];
+std::array<int, 22> optionsValues {{ 
+    0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 300, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 0
+}};
 
-//Number of generations
-uint16_t genCount = 0;
+void setOption(sensor_t* s, int option, int value) {
+    switch (option) {
+        case CAM_OPTION_BRIGHTNESS:
+            s->set_brightness(s, value);
+            break;
+        case CAM_OPTION_CONTRAST:
+            s->set_contrast(s, value);
+            break;
+        case CAM_OPTION_SATURATION:
+            s->set_saturation(s, value);
+            break;
+        case CAM_OPTION_SPECIAL_EFFECT:
+            s->set_special_effect(s, value);
+            break;
+        case CAM_OPTION_WHITEBAL:
+            s->set_whitebal(s, value);
+            break;
+        case CAM_OPTION_AWB_GAIN:
+            s->set_awb_gain(s, value);
+            break;
+        case CAM_OPTION_WB_MODE:
+            s->set_wb_mode(s, value);
+            break;
+        case CAM_OPTION_EXPOSURE_CTRL:
+            s->set_exposure_ctrl(s, value);
+            break;
+        case CAM_OPTION_AEC2:
+            s->set_aec2(s, value);
+            break;
+        case CAM_OPTION_AE_LEVEL:
+            s->set_ae_level(s, value);
+            break;
+        case CAM_OPTION_AEC_VALUE:
+            s->set_aec_value(s, value);
+            break;
+        case CAM_OPTION_GAIN_CTRL:
+            s->set_gain_ctrl(s, value);
+            break;
+        case CAM_OPTION_AGC_GAIN:
+            s->set_agc_gain(s, value);
+            break;
+        case CAM_OPTION_GAINCEILING:
+            s->set_gainceiling(s, gainceiling_t(value));
+            break;
+        case CAM_OPTION_BPC:
+            s->set_bpc(s, value);
+            break;
+        case CAM_OPTION_WPC:
+            s->set_wpc(s, value);
+            break;
+        case CAM_OPTION_RAW_GMA:
+            s->set_raw_gma(s, value);
+            break;
+        case CAM_OPTION_LENC:
+            s->set_lenc(s, value);
+            break;
+        case CAM_OPTION_HMIRROR:
+            s->set_hmirror(s, value);
+            break;
+        case CAM_OPTION_VFLIP:
+            s->set_vflip(s, value);
+            break;
+        case CAM_OPTION_DCW:
+            s->set_dcw(s, value);
+            break;
+        case CAM_OPTION_COLORBAR:
+            s->set_colorbar(s, value);
+            break;
+        default:
+           throw std::runtime_error("Error sensor setting undefined");
+            break;
+    }
+}
 
-// forward declaration:
-void drawGrid(void);
-void initGrid(void);
-void computeCA();
-int getNumberOfNeighbors(int x, int y);
+std::string optionValueToString(int option, int value) {
+    const std::vector<std::pair<std::string, int>> availableValues = availableValuesByOptions[option];
+    const auto end = availableValues.end();
+    const auto it = std::find_if(availableValues.begin(), end, [&value](const std::pair<std::string, int>& v) 
+    { return v.second == value; } );
+    
+    if(it == end)
+        throw std::runtime_error("[error] value for this option can't be found");
 
-void setup()   {
+    return it->first;
+}
+uint16_t colorConverter(uint8_t r, uint8_t g, uint8_t b) {
+    // R, G, and B are divided equally giving 3 * 5 = 15 bits and the additional bit is allocated to Green.
+    return static_cast<uint16_t>(r >> 3) << 11 | static_cast<uint16_t>(g >> 2) << 5 | static_cast<uint16_t>(b >> 3);
+}
 
-  //Set up the display
+template <typename T> int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
+}
+
+// Pause in milliseconds between screens, change to 0 to time font rendering
+#define WAIT 2500
+
+TFT_eSPI tft = TFT_eSPI();  // Invoke library, pins defined in User_Setup.h
+
+// 240*320
+int selectedOption = 0;
+
+unsigned long targetTime = 0; // Used for testing draw times
+
+void setup(void) {
   tft.init();
-  tft.setRotation(3);
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(0, 0);
-
+  tft.setRotation(1);
+  tft.setTextDatum(CC_DATUM);
 }
 
 void loop() {
+    targetTime = millis();
 
-  //Display a simple splash screen
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(40, 5);
-  tft.println(F("Arduino"));
-  tft.setCursor(35, 25);
-  tft.println(F("Cellular"));
-  tft.setCursor(35, 45);
-  tft.println(F("Automata"));
+    ++selectedOption;
+    selectedOption %= availableValuesByOptions.size();
 
-  delay(1000);
+    tft.fillScreen(TFT_WHITE);
 
-  tft.fillScreen(TFT_BLACK);
+    tft.setTextPadding(1);
+    tft.setTextSize(1);
 
-  initGrid();
-
-  genCount = MAX_GEN_COUNT;
-
-  drawGrid();
-
-  //Compute generations
-  for (int gen = 0; gen < genCount; gen++)
-  {
-    computeCA();
-    drawGrid();
-    delay(GEN_DELAY);
-    for (int16_t x = 1; x < GRIDX-1; x++) {
-      for (int16_t y = 1; y < GRIDY-1; y++) {
-        grid[x][y] = newgrid[x][y];
-      }
+    const int lineHeight = tft.fontHeight(4);
+    const int centerHeight = 120;
+    const int padding = 4;
+    
+    for (int i = -4; i < 4; ++i) {
+        const bool isNotCenter = i != 0;
+        const uint8_t greyLevel = 52*abs(i) + 32 * isNotCenter;
+        const uint16_t color = colorConverter(greyLevel, greyLevel, greyLevel);
+        tft.setTextColor(color, TFT_WHITE);
+        const int id = (availableValuesByOptions.size() + selectedOption + i) % availableValuesByOptions.size();
+        const int yPos = centerHeight + i * (lineHeight + padding) + isNotCenter * sgn(i) * padding;
+        tft.drawString(optionToString(id).c_str(), 90, yPos, 4);
+        tft.drawString(optionValueToString(id, optionsValues[id]).c_str(), 240, yPos, 4);
     }
+    tft.drawLine(10, centerHeight + (lineHeight + padding)/2 , 310, centerHeight + (lineHeight + padding)/2 , TFT_DARKGREY);
+    tft.drawLine(10, centerHeight - lineHeight/2 - padding , 310, centerHeight - lineHeight/2 - padding , TFT_DARKGREY);
 
-  }
+    delay(WAIT);
 }
-
-//Draws the grid on the display
-void drawGrid(void) {
-
-  uint16_t color = TFT_WHITE;
-  for (int16_t x = 1; x < GRIDX - 1; x++) {
-    for (int16_t y = 1; y < GRIDY - 1; y++) {
-      if ((grid[x][y]) != (newgrid[x][y])) {
-        if (newgrid[x][y] == 1) color = 0xFFFF; //random(0xFFFF);
-        else color = 0;
-        tft.fillRect(CELLXY * x, CELLXY * y, CELLXY, CELLXY, color);
-      }
-    }
-  }
-}
-
-//Initialise Grid
-void initGrid(void) {
-  for (int16_t x = 0; x < GRIDX; x++) {
-    for (int16_t y = 0; y < GRIDY; y++) {
-      newgrid[x][y] = 0;
-
-      if (x == 0 || x == GRIDX - 1 || y == 0 || y == GRIDY - 1) {
-        grid[x][y] = 0;
-      }
-      else {
-        if (random(3) == 1)
-          grid[x][y] = 1;
-        else
-          grid[x][y] = 0;
-      }
-
-    }
-  }
-}
-
-//Compute the CA. Basically everything related to CA starts here
-void computeCA() {
-  for (int16_t x = 1; x < GRIDX; x++) {
-    for (int16_t y = 1; y < GRIDY; y++) {
-      int neighbors = getNumberOfNeighbors(x, y);
-      if (grid[x][y] == 1 && (neighbors == 2 || neighbors == 3 ))
-      {
-        newgrid[x][y] = 1;
-      }
-      else if (grid[x][y] == 1)  newgrid[x][y] = 0;
-      if (grid[x][y] == 0 && (neighbors == 3))
-      {
-        newgrid[x][y] = 1;
-      }
-      else if (grid[x][y] == 0) newgrid[x][y] = 0;
-    }
-  }
-}
-
-// Check the Moore neighborhood
-int getNumberOfNeighbors(int x, int y) {
-  return grid[x - 1][y] + grid[x - 1][y - 1] + grid[x][y - 1] + grid[x + 1][y - 1] + grid[x + 1][y] + grid[x + 1][y + 1] + grid[x][y + 1] + grid[x - 1][y + 1];
-}
-
-/*
-   The MIT License (MIT)
-
-   Copyright (c) 2016 RuntimeProjects.com
-
-   Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
-   furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in all
-   copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-   SOFTWARE.
-*/
