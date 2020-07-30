@@ -1,6 +1,6 @@
 #pragma once
 
-#include "img_converters.h"
+#include "esp32-hal.h" // used to allow ps_malloc
 
 #include <algorithm>
 #include <functional>
@@ -9,130 +9,123 @@ struct PIXELFORMAT_RGB {
     uint8_t r;
     uint8_t g;
     uint8_t b;
-};
-
-// using struct PIXELFORMAT_RGB PIXELFORMAT_RGB;
-// using PIXELFORMAT_GRAYSCALE = uint8_t;
+    PIXELFORMAT_RGB(uint8_t r_, uint8_t g_, uint8_t b_) : r{r_}, g{g_}, b{b_} {}
+} ;
 
 template <class T >
-class Matrix
-{
+class Matrix {
 private:
-	T* data_;
+    size_t cols_;
 	size_t rows_;
-	size_t cols_;
-
+	T* data_;
+	
 public:
-	Matrix() : rows_(0), cols_(0) {}
+	Matrix() : cols_{0}, rows_{0}, data_{NULL} {}
 
-	Matrix(size_t c, size_t r) : rows_{r}, cols_{0} {
-		data_ = new T[rows_ * cols_];
+	Matrix(size_t c, size_t r) : cols_{c}, rows_{r} {
+        data_ = (T*) ps_malloc(cols_ * rows_ * sizeof(T));
 	}
 
 	Matrix(size_t c, size_t r, T fillVal) : Matrix(c, r) {
-        std::fill(data_, data_ + r * c, fillVal);
-		/*
-        for (size_t i = 0; i < len(); i++) {
-			data_[i] = fillVal;
-		}
-        */
+        std::fill(data_, data_ + rows_ * cols_, fillVal);
 	}
 
-	Matrix(const Matrix& rhs) : Matrix(rhs.cols_, rhs.rows_) {
-       std::copy(rhs.data_, rhs.data_ + rhs.len(), data_);
+	Matrix(const Matrix<T>& rhs) : Matrix(rhs.cols_, rhs.rows_) {
+       std::copy(rhs.begin(), rhs.end(), data_);
 	}
 
-    Matrix(Matrix&& mat) : data_{} {
-        data_ = mat.data_;
-        mat.data_ = nullptr;
-    }
-
-    Matrix(const camera_fb_t* fb) : rows_{fb->height}, cols_{fb->width} {
-        // Load img and store it into our buffer
-        if(!fmt2rgb888(fb->buf, fb->len, fb->format, (uint8_t*)(&(data_[0])))) {
-            throw std::runtime_error("[Error] getImageMatrixFromJPEGBuffer: conversion to rgb888 failed.");
-        }
+    Matrix(Matrix<T>&& mat) : cols_{mat.cols_}, rows_{mat.rows_}, data_{mat.data_} {
+        mat.data_ = NULL;
     }
 
     ~Matrix() {
-        if(data_ != nullptr)
-            delete[] data_;
+        if(data_ != NULL)
+            free(data_);
     }
 
     // getters
-    inline T* data() const { return data_; }
-	inline size_t width() const { return rows_; }
-	inline size_t height() const { return cols_; }
+    inline T* data() { return data_; }
+    inline const T* data() const { return data_; }
+	inline size_t width() const { return cols_; }
+	inline size_t height() const { return rows_; }
 	inline size_t len() const { return rows_ * cols_; }
 
-    int begin() { return int(&data_[0]); }
-    int end() { return int(&data_[rows_ * cols_]); }
+    T* begin() { return data_; }
+    const T* begin() const { return data_; }
+    T* end() { return begin() + len(); }
+    const T* end() const { return begin() + len(); }
 
-    T& operator[](const size_t& id) { return data_[id]; }
-    const T& operator[](const size_t& id) const { return data_[id]; }
+    inline T& operator[](const size_t& id) { return data_[id]; }
+    inline const T& operator[](const size_t& id) const { return data_[id]; }
 
-    T& operator()(const size_t& r, const size_t& c) { return data_[r * cols_ + c]; }
-    const T& operator()(const size_t& r, const size_t& c) const { return data_[r * cols_ + c]; }
-    T& operator()(const size_t& id) { return data_[id]; }
-    const T& operator()(const size_t& id) const { return data_[id]; }
+    inline T& operator()(const size_t& r, const size_t& c) { return data_[r * cols_ + c]; }
+    inline const T& operator()(const size_t& r, const size_t& c) const { return data_[r * cols_ + c]; }
+    inline T& operator()(const size_t& id) { return data_[id]; }
+    inline const T& operator()(const size_t& id) const { return data_[id]; }
 
     Matrix& operator=(const Matrix& rhs) {
         if (this != &rhs) {
             if(rhs.rows_ != rows_ || rhs.cols_ != cols_) {
-                delete[] data;
+                if(data_ != NULL)
+                    free(data_);
                 rows_ = rhs.rows_;
                 cols_ = rhs.cols_;
-                data_ = new T[rhs.len()];
+                data_ = (T*) ps_malloc(len() * sizeof(T));
             }
             
-            std::copy(begin(), end(), begin());
+            std::copy(rhs.begin(), rhs.end(), begin());
         }
         return *this;
     }
     
     Matrix& operator=(Matrix&& rhs) {
         if (this != &rhs) {
-            delete[] data_;
+            if(data_ != NULL)
+                free(data_);
+
             data_ = rhs.data_;
-            rhs.data_ = nullptr;
+            rhs.data_ = NULL;
+            rows_ = rhs.rows_;
+            rhs.rows_ = 0;
+            cols_ = rhs.cols_;
+            rhs.cols_ = 0;
         }
         return *this;
     }
 
-	bool operator==(const Matrix& rhs) const
-	{
+	bool operator==(const Matrix<T>& rhs) const {
+        if (this != &rhs)
+            return true;
+
 		if(rhs.rows_ != rows_ || rhs.cols_ != cols_)
 			return false;
 
 		return std::equal(begin(), end(), rhs.begin());
 	}
 
+    
     Matrix& operator+(const Matrix& rhs) const {
-        Matrix m = *this;
+        Matrix m(*this);
 		return m += rhs;
     }
 
     Matrix& operator+(const T& rhs) {
-        Matrix m = *this;
+        Matrix m(*this);
 		return m += rhs;
     }
 
     Matrix& operator+=(const Matrix& rhs) {
-
         if(rhs.rows_ != rows_ || rhs.cols_ != cols_)
 			throw std::invalid_argument("Matrix without the same size can't be added.");
 
         std::transform(begin(), end(), rhs.begin(), begin(), std::plus<T>());
-        return *this;
     }
 
     Matrix& operator+=(const T& rhs) {
-
         if(rhs.rows_ != rows_ || rhs.cols_ != cols_)
 			throw std::invalid_argument("Matrix without the same size can't be added.");
 
         std::transform(begin(), end(), begin(), std::bind(std::plus<T>(), std::placeholders::_1, rhs));
-        return *this;
     }
 };
 
@@ -140,4 +133,3 @@ template<typename T>
 Matrix<T>& operator+(const T& lhs, const Matrix<T>& rhs) {
     return rhs + lhs;
 }
-
