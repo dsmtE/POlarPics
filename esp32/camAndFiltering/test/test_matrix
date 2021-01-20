@@ -1,0 +1,20 @@
+#include <Arduino.h>
+#include <unity.h>
+
+#include <filtering.h>
+
+void setup() {
+    // Wait for >2 secs if board doesn't support software reset via Serial.DTR/RTS
+    delay(2000);
+
+    UNITY_BEGIN(); // IMPORTANT LINE!
+
+    Matrix<PIXELFORMAT_RGB> mat(10, 10);
+    Matrix<uint8_t> mat2(10, 10, 255);
+    Matrix<uint8_t> mat3(mat2);
+    TEST_ASSERT_TRUE(mat3 == mat2);
+
+    UNITY_END(); // stop unit testing
+}
+
+void loop() {}
