@@ -16,3 +16,4 @@ IMPORTANT: How upload the code :
 - write img to sd card : https://randomnerdtutorials.com/esp32-cam-take-photo-save-microsd-card/
 - cam settings : https://randomnerdtutorials.com/esp32-cam-ov2640-camera-settings/
 - -aalog read pin : https://randomnerdtutorials.com/esp32-adc-analog-read-arduino-ide/
+- PSRAM : https://thingpulse.com/esp32-how-to-use-psram/
