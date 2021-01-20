@@ -20,7 +20,7 @@ private:
 	T* data_;
 	
 public:
-	Matrix() : cols_{0}, rows_{0}, data_{NULL} {}
+	Matrix() : cols_{0}, rows_{0}, data_{nullptr} {}
 
 	Matrix(size_t c, size_t r) : cols_{c}, rows_{r} {
         data_ = (T*) ps_malloc(cols_ * rows_ * sizeof(T));
@@ -35,11 +35,11 @@ public:
 	}
 
     Matrix(Matrix<T>&& mat) : cols_{mat.cols_}, rows_{mat.rows_}, data_{mat.data_} {
-        mat.data_ = NULL;
+        mat.data_ = nullptr;
     }
 
     ~Matrix() {
-        if(data_ != NULL)
+        if(data_ != nullptr)
             free(data_);
     }
 
@@ -66,7 +66,7 @@ public:
     Matrix& operator=(const Matrix& rhs) {
         if (this != &rhs) {
             if(rhs.rows_ != rows_ || rhs.cols_ != cols_) {
-                if(data_ != NULL)
+                if(data_ != nullptr)
                     free(data_);
                 rows_ = rhs.rows_;
                 cols_ = rhs.cols_;
@@ -80,11 +80,11 @@ public:
     
     Matrix& operator=(Matrix&& rhs) {
         if (this != &rhs) {
-            if(data_ != NULL)
+            if(data_ != nullptr)
                 free(data_);
 
             data_ = rhs.data_;
-            rhs.data_ = NULL;
+            rhs.data_ = nullptr;
             rows_ = rhs.rows_;
             rhs.rows_ = 0;
             cols_ = rhs.cols_;
