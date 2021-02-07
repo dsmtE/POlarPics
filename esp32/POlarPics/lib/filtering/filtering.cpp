@@ -51,3 +51,36 @@ void filtering::errorDiffusion(Matrix<uint8_t>& mat, const float threshold, EFil
         }
     }
 }
+
+PrinterMatrix filtering::errorDiffusionPrinter(Matrix<uint8_t>& mat, const float threshold, const EFilteringMethod method) {
+
+    // get pattern
+    const auto end = diffusionPatterns.end();
+    const auto it = std::find_if(diffusionPatterns.begin(), end, [&method](const std::pair<EFilteringMethod, std::vector<PatternPart>>& e) 
+    { return e.first == method; } );
+    
+    // If method can't be found
+    if(it == end)
+        throw std::runtime_error("[error] errorDiffusion: pattern can't be found.");
+
+    const std::vector<PatternPart> pattern = it->second;
+
+    const size_t cols = mat.width();
+    const size_t rows = mat.height();
+    PrinterMatrix out(cols, cols);
+    for (size_t i = 0; i < rows; i++) {
+        for (size_t j = 0; j < cols; j++) {
+            const bool newPixel = mat(i, j) < (threshold * 255.f); // Quantization by threshold
+            const float error = static_cast<float>(mat(i,j)) - newPixel ? 255.f : 0.f; // Error
+            out.set(i, j, newPixel); // Assignation
+
+            // Error diffusion
+            for (const PatternPart ps : pattern) {
+                const size_t newi = i + ps.deltaRows;
+                const size_t newj = j + ps.deltaCols;
+                if(newi >= 0 and newi < rows and newj >= 0 and newj < cols)
+                    mat(newi, newj) = static_cast<uint8_t>(clamp(mat(newi, newj) + error * ps.proportion, 0.0f, 255.0f)); // error diffusion
+            }
+        }
+    }
+}
