@@ -7,21 +7,21 @@
 #include "soc/soc.h"           // Disable brownour problems
 #include "soc/rtc_cntl_reg.h"  // Disable brownour problems
 
-#include <filtering.h>
-
 #include "img_converters.h"
 
 #include "driver/rtc_io.h" // allows lock GPIO state  during sleep
 
 #include "esp32-hal.h" // used to allow ps_malloc
 
-#include <cstdlib>
+// #include <cstdlib>
 #include <stdexcept>
-#include <string.h>
 #include <array>
-#include <string>
-#include <vector>
-#include <algorithm>
+
+#include "Matrix.h"
+#include "PrinterMatrix.h"
+
+#include "utils.hpp"
+#include "menu.hpp"
 
 // Pin definition for AI_THINKER
 #define PWDN_GPIO_NUM     32
@@ -43,109 +43,52 @@
 #define PCLK_GPIO_NUM     22
 
 
-void logPSRAM() {
-  const uint32_t psramSize = ESP.getPsramSize();
-  const uint32_t freePsram = ESP.getFreePsram();
-  log_d("Psram -- Total: %d; Free: %d; Used: %d", psramSize, freePsram, psramSize - freePsram);
-}
+#define buttonPin  0
 
-void logHeap() {
+sensor_t * s;
 
-  const uint32_t heapSize = ESP.getHeapSize();
-  const uint32_t freeHeap = ESP.getFreeHeap();
-  log_d("Heap -- Total: %d; Free: %d; Used: %d", heapSize, freeHeap, heapSize - freeHeap);
-}
+TFT_eSPI tft = TFT_eSPI();  // Invoke library, pins defined in User_Setup.h
 
-void logMemory() {
-  log_d("----- Memory log -----");
-  logHeap();
-  logPSRAM();
-}
+// matrix buffers
+Matrix<uint8_t> grayscale;
+PrinterMatrix ditherMat;
 
-void fbToMat(camera_fb_t* fb, Matrix<PIXELFORMAT_RGB>& mat) {
-    if (fb->width != mat.width() || fb->height != mat.height())
-      throw std::runtime_error("[Error] Invalid size");
+// menuVariables
+size_t buttonsValue;
+size_t selectedOption = 0;
+bool menuOpen = true;
+bool needDrawMenu = true;
+bool optionSelected = false;
+bool lockBtn = false;
 
-    // Load img and store it into our buffer
-    if(!fmt2rgb888(fb->buf, fb->len, fb->format, (uint8_t*)mat.begin())) 
-      throw std::runtime_error("[Error] getImageMatrixFromJPEGBuffer: conversion to rgb888 failed.");      
-}
-
-uint16_t colorConverter(const uint8_t r,const uint8_t g, const uint8_t b) {
-    // R, G, and B are divided equally giving 3 * 5 = 15 bits and the additional bit is allocated to Green.
-    // (565 rgb format)
-    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-}
-uint16_t colorConverter(const uint8_t grey) {
-    return colorConverter(grey, grey, grey);
-}
-
-void drawGrayScale(TFT_eSPI& tft, int16_t x, int16_t y, const Matrix<uint8_t>& grayscaleMat) {
-    for (int16_t r = 0; r < grayscaleMat.height(); ++r) {
-        for (int16_t c = 0; c < grayscaleMat.width(); ++c) {
-            const uint8_t grey = grayscaleMat(r, c);
-            tft.drawPixel(x + c, y + r, tft.color565(grey, grey, grey));
-            // 320*240
-        }
-    }
-}
-
-template <typename T>
-Matrix<T> rescale(const Matrix<T>& in, const int8_t ratioNum, const int8_t ratioDenom) {
-    const size_t newWidth = in.width() * ratioNum / ratioDenom;
-    const size_t newHeight = in.height() * ratioNum / ratioDenom;
-    Matrix<T> out(newWidth, newHeight);
-    for (size_t r = 0; r < newHeight; ++r) {
-        for (size_t c = 0; c < newWidth; ++c) {
-            std::vector<T> values(ratioDenom*ratioDenom);
-            // compute subKernel input values
-            for (size_t j = 0; j < ratioDenom; ++j) {
-                for (size_t i = 0; i < ratioDenom; ++i) {
-                    values[i + j * ratioDenom] = in((r * ratioDenom + i) / ratioNum, (c* ratioDenom + j) / ratioNum);
-                }
-            }
-            // here simply take the average of input values instead of apply a specific kernel
-            T sum = std::accumulate(values.begin(), values.end(), T(0));
-            out(r, c) = sum / ratioDenom*ratioDenom;
-        }
-    }
-    return out;
-}
-
-template <typename T>
-const Matrix<T> subMatrix(const Matrix<T>& in, const size_t x, const size_t y, const size_t w, const size_t h) {
-    assert(x+w < in.width() && x+h < in.width());
-    Matrix<T> out(w, h);
-    for (size_t r = 0; r < h; ++r) {
-        for (size_t c = 0; c < w; ++c) {
-            out(r, c) = in(y + r, x + c);
-        }
-    }
-    return out;
-}
-
-char* ToBitmap (const Matrix<uint8_t>& grayscale) {
-    const int bitmapLen = std::ceil(grayscale.len() / 8);
-    char* bitmap = (char*) ps_malloc(bitmapLen);
-    
-    // TODO
-    return bitmap;
-}
+std::array<size_t, 22> optionsValuesIdx {{ 
+    2, 2, 2, 0, 1, 1, 0, 1, 0, 2, 2, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 0
+}};
 
 // Pause in milliseconds between screens, change to 0 to time font rendering
 #define WAIT 500
 
-TFT_eSPI tft = TFT_eSPI();  // Invoke library, pins defined in User_Setup.h
-// 240*320
+void fbToMat(camera_fb_t* fb, Matrix<PIXELFORMAT_RGB>& mat) {
+    if (fb->width != mat.width() || fb->height != mat.height())
+        throw std::runtime_error("[Error] Invalid size");
 
-Matrix<uint8_t> grayscale(320, 240);
+    // Load img and store it into our buffer
+    if(!fmt2rgb888(fb->buf, fb->len, fb->format, (uint8_t*)mat.begin())) 
+        throw std::runtime_error("[Error] getImageMatrixFromJPEGBuffer: conversion to rgb888 failed.");      
+}
 
-void setup(void) {
+void setup() {
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
     Serial.begin(115200);
 
-    delay(1000);
-  {
+    // pinMode(33, OUTPUT); // blink pin
+    pinMode(buttonPin, INPUT_PULLDOWN);
+
+    grayscale = Matrix<uint8_t>(320, 240);
+    ditherMat = PrinterMatrix(320, 240);
+
+    delay(200);
+    {
     // camera pin configuration
     const camera_config_t config = {
       PWDN_GPIO_NUM, // pin_pwdn
@@ -171,7 +114,7 @@ void setup(void) {
       // Init with high specs to pre-allocate larger buffers 
       FRAMESIZE_VGA, // frame_size // FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
       20, // jpeg_quality - 0-63 lower number means higher quality.
-      2 // fb_count - number of frame buffers to be allocated.
+      2 // fb_count - number of frame buffers to be allocated. (if more than one, i2s runs in continuous mode. Use only with JPEG)
     };
 
     // camera init
@@ -181,66 +124,134 @@ void setup(void) {
       return;
     }
 
-    // Sensor settings
-    sensor_t * s = esp_camera_sensor_get();
-    s->set_framesize(s, FRAMESIZE_VGA); // Drop down frame size
-    // 640x480
-  }
+    s = esp_camera_sensor_get();
+    // s->set_framesize(s, FRAMESIZE_VGA); // Drop down frame size to 640x480
+    }
 
     tft.init();
     tft.setRotation(1);
     tft.setTextDatum(CC_DATUM);
     tft.setTextPadding(1);
     tft.setTextSize(1);
+    
+    utils::logMemory();
+
+    for (size_t i = 0; i < 4; i++) {
+        digitalWrite(33, HIGH); //Turn off
+        delay (50); //Wait 1 sec
+        digitalWrite(33, LOW); //Turn on
+        delay (50); //Wait 1 sec
+    }
     log_d("setup done.");
-    logPSRAM();
+}
+
+void buttonsActions() {
+    // 208 1850 2920 3440 4095
+
+    size_t btnId = buttonsValue/1000.f;
+
+    if(!lockBtn) {
+        switch (btnId) {
+            case 0: // enter
+                if(menuOpen) {
+                    optionSelected = !optionSelected;
+                }else {
+                    menuOpen = true;
+                }
+                needDrawMenu = true;
+                break;
+            
+            case 1: // back
+                if(menuOpen) {
+                    if(optionSelected) {
+                        optionSelected = false;
+                    }else {
+                        menuOpen = false;
+                    }
+                    needDrawMenu = true;
+                }
+                break;
+
+            case 2: // left
+                if(menuOpen) {
+                    if(optionSelected) {
+                        optionsValuesIdx[selectedOption] = utils::saveModulo(optionsValuesIdx[selectedOption] + 1, menu::availableValuesByOptions[selectedOption].size());
+                    } else {
+                        selectedOption = utils::saveModulo(selectedOption + 1, menu::availableValuesByOptions.size());
+                    }
+                    needDrawMenu = true;
+                }
+                break;
+            case 3: // right
+                if(menuOpen) {
+                    if(optionSelected) {
+                        optionsValuesIdx[selectedOption] = utils::saveModulo(optionsValuesIdx[selectedOption] - 1, menu::availableValuesByOptions[selectedOption].size());
+                    } else {
+                        selectedOption = utils::saveModulo(selectedOption - 1, menu::availableValuesByOptions.size());
+                    }
+                    needDrawMenu = true;
+                }
+                
+                break;
+            default:
+                break;
+        }
+    }
+    lockBtn = btnId < 4;
 }
 
 void loop() {
     
-    // convert frame buffer to matrix
-    {
-        camera_fb_t* fb = esp_camera_fb_get();
-        log_d("pointer value: %p", fb);
-        log_d("esp_camera_fb_get");
-        logPSRAM();
+    buttonsValue = analogRead(buttonPin);
+    const size_t btnId = buttonsValue/1000.f;
 
-        Matrix<PIXELFORMAT_RGB> mat(fb->width, fb->height);
-        logPSRAM();
-        log_d("buffer size (w,h): ( %d, %d)\n",fb->width, fb->height);
+    buttonsActions();
 
-        fbToMat(fb, mat);
-        // logPSRAM();
-
-        esp_camera_fb_return(fb);
-        log_d("esp_camera_fb_return");
-        logPSRAM();
-
-        log_d("matrix size (w,h): ( %d, %d)\n", grayscale.width(), grayscale.height());
-        grayscale = filtering::convertToGrayscale(mat);
-
-        /*
-        Serial.println("display img :");
-        for (size_t r = 0; r < 100; ++r) {
-            for (size_t c = 0; c < 100; ++c) {
-                Serial.print(grayscale(r, c));
-                Serial.print(", ");
-            }
-            Serial.println(' ');
+    if(menuOpen) {
+        if(needDrawMenu) {
+            menu::drawMenu(tft, selectedOption, optionSelected, optionsValuesIdx);
+            needDrawMenu = false;
         }
-        */
-        // filtering::errorDiffusion(grayscale);
-    }
-    log_d("free closure");
-    logPSRAM();
-    // tft.fillScreen(TFT_WHITE);
-    {
-        Matrix<uint8_t> rescaled = rescale(grayscale, 1, 2);
-        logPSRAM();
-        log_d("matrix size after rescale (w,h): ( %d, %d)\n", rescaled.width(), rescaled.height());
-        drawGrayScale(tft, 0, 0, rescaled);
-    }
-    
 
-    delay(WAIT);
+        // display input
+        // tft.setTextColor(TFT_BLUE, TFT_WHITE);
+        // tft.drawNumber(buttonsValue, 100, tft.fontHeight(4), 4);
+        // tft.drawNumber(btnId, 100, tft.fontHeight(4)*3, 4);
+
+        delay(20);
+    }else {
+        if(needDrawMenu) {
+            tft.fillScreen(TFT_WHITE);
+            needDrawMenu = false;
+        }
+        
+        for (size_t i = 0; i < grayscale.len(); ++i) {
+            grayscale(i) = static_cast<uint8_t>(std::rand());
+        }
+
+        // convert frame buffer to matrix
+        {
+            camera_fb_t* fb = esp_camera_fb_get();
+            log_d("[esp_camera_fb_get] pointer value: %p", fb);
+
+            if(fb != nullptr) {
+                Matrix<PIXELFORMAT_RGB> mat(fb->width, fb->height);
+                log_d("buffer size: (%d, %d)\n",fb->width, fb->height);
+
+                fbToMat(fb, mat);
+                log_d("fbToMat");
+
+                grayscale = utils::GrayRescaled(mat, 2.f);
+                utils::logMemory();
+            }
+            esp_camera_fb_return(fb);
+            log_d("esp_camera_fb_return");
+        }
+        
+        // ditherMat = filtering::errorDiffusionPrinter(grayscale, 0.5f);
+        
+        utils::drawGrayScale(tft, 0, 0, grayscale);
+        
+       delay(WAIT);
+    }
 }
