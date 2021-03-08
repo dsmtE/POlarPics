@@ -12,7 +12,7 @@ uint8_t filtering::rgbToGrayscale(const PIXELFORMAT_RGB& pixel) {
 }
 
 Matrix<uint8_t> filtering::convertToGrayscale(const Matrix<PIXELFORMAT_RGB>& inMat) {
-    log_d("input matrix width/height : %d/%d ", inMat.width(), inMat.height());
+    //log_d("input matrix width/height : %d/%d ", inMat.width(), inMat.height());
     Matrix<uint8_t> outMat(inMat.width(), inMat.height());
     // Apply grayscale conversion
     std::transform(inMat.begin(), inMat.end(), outMat.data(), [](const PIXELFORMAT_RGB& e) { return filtering::rgbToGrayscale(e); });

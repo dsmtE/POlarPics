@@ -54,3 +54,25 @@ namespace utils {
     }
 
 }
+
+// template <typename T>
+// Matrix<T> rescale(const Matrix<T>& in, const int8_t ratioNum, const int8_t ratioDenom) {
+//     const size_t newWidth = in.width() * ratioNum / ratioDenom;
+//     const size_t newHeight = in.height() * ratioNum / ratioDenom;
+//     Matrix<T> out(newWidth, newHeight);
+//     for (size_t r = 0; r < newHeight; ++r) {
+//         for (size_t c = 0; c < newWidth; ++c) {
+//             std::vector<T> values(ratioDenom*ratioDenom);
+//             // compute subKernel input values
+//             for (size_t j = 0; j < ratioDenom; ++j) {
+//                 for (size_t i = 0; i < ratioDenom; ++i) {
+//                     values[i + j * ratioDenom] = in((r * ratioDenom + i) / ratioNum, (c* ratioDenom + j) / ratioNum);
+//                 }
+//             }
+//             // here simply take the average of input values instead of apply a specific kernel
+//             T sum = std::accumulate(values.begin(), values.end(), T(0));
+//             out(r, c) = sum / ratioDenom*ratioDenom;
+//         }
+//     }
+//     return out;
+// }

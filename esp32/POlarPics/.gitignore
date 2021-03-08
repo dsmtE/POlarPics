@@ -1,4 +1,5 @@
 /.pio/build/*
+/.pio/libdeps/*
 /.pio/libdeps/esp32cam/TFT_eSPI/*
 !/.pio/libdeps/esp32cam/TFT_eSPI/User_Setup.h
 .vscode/

@@ -10,7 +10,7 @@
 #define TFT_SCLK 14 // SCL
 #define TFT_CS   15  // Chip select control pin
 #define TFT_DC    2  // Data Command control pin
-#define TFT_RST  12  // Reset pin connected to 3V
+#define TFT_RST  16  // Reset pin
 
 #define ST7735_GREENTAB2
 
