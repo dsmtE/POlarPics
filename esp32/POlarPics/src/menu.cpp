@@ -157,7 +157,7 @@ namespace menu {
             const uint8_t greyLevel = 52*abs(i) + 32 * isNotCenter;
             const uint16_t color = utils::colorConverter(greyLevel, greyLevel, greyLevel);
 
-            tft.setTextColor(i == 0 && optionSelected ? TFT_DARKCYAN : color, TFT_WHITE);
+            tft.setTextColor(i == 0 && optionSelected ? TFT_CYAN : color, TFT_WHITE);
 
             const int id = (availableValuesByOptions.size() + selectedOption + i) % availableValuesByOptions.size();
             const int yPos = centerHeight + i * (lineHeight + padding) + isNotCenter * utils::sgn(i) * padding;

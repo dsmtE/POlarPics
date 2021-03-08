@@ -55,6 +55,7 @@ public:
 	inline size_t width() const { return cols_; }
 	inline size_t height() const { return rows_; }
 	inline size_t len() const { return cols_*  rows_; }
+    inline size_t bufferSize() const { return size_; }
 
     inline uint8_t& operator[](const size_t& id) { return data_[id]; }
     inline const uint8_t& operator[](const size_t& id) const { return data_[id]; }

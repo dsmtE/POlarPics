@@ -68,6 +68,16 @@ void testImg(Adafruit_Thermal& printer) {
   printer.setDefault(); // Restore printer to defaults
 }
 
+void printImg(const PrinterMatrix& mat, Adafruit_Thermal& printer) {
+    // printer.feed(2);
+    printer.printBitmap(mat.width(), mat.height(), mat.data(), false);
+    // printer.feed(2);
+    printer.sleep();
+    delay(500);
+    printer.wake();
+    printer.setDefault();
+}
+
 void fbToMat(camera_fb_t* fb, Matrix<PIXELFORMAT_RGB>& mat) {
     if (fb->width != mat.width() || fb->height != mat.height())
         throw std::runtime_error("[Error] Invalid size");
@@ -232,7 +242,8 @@ void buttonsActions(const size_t btnValue) {
                     }
                     needDrawMenu = true;
                 }else {
-                    testImg(printer);
+                    PrinterMatrix dithered = filtering::errorDiffusionPrinter(grayscale);
+                    printImg(dithered, printer);
                 }
                 break;
             case 4: // right
@@ -298,15 +309,18 @@ void loop() {
         }
         //Serial.printf("[esp_camera_fb_return]");
         esp_camera_fb_return(fb);
-
+        
         // ditherMat = filtering::errorDiffusionPrinter(grayscale, 0.5f);
-        utils::drawGrayScale(tft, 0, 0, grayscale);
+        // utils::drawGrayScale(tft, 0, 0, grayscale);
+
+        PrinterMatrix dithered = filtering::errorDiffusionPrinter(grayscale);
+        utils::drawGrayScale(tft, 0, 0, dithered);
         
        delay(WAIT);
     }
 
-    // // display input
-    // tft.setTextColor(TFT_BLUE, TFT_WHITE);
-    // tft.drawNumber(buttonsValue, 100, tft.fontHeight(4), 4);
-    // tft.drawNumber(buttonMap(buttonsValue), 100, tft.fontHeight(4)*3, 4);
+    // display input
+    tft.setTextColor(TFT_BLUE, TFT_WHITE);
+    tft.drawNumber(buttonsValue, 100, tft.fontHeight(4), 4);
+    tft.drawNumber(buttonMap(buttonsValue), 100, tft.fontHeight(4)*3, 4);
 }

@@ -3,6 +3,8 @@
 #include <cstdint>
 
 #include <TFT_eSPI.h>
+
+#include "PrinterMatrix.h"
 #include <matrix.h>
 
 namespace utils {
@@ -22,7 +24,8 @@ namespace utils {
     uint16_t colorConverter(uint8_t r, uint8_t g, uint8_t b);
     inline uint16_t colorConverter(const uint8_t grey) { return colorConverter(grey, grey, grey); }
 
-    void drawGrayScale(TFT_eSPI& tft, size_t x, size_t y, const Matrix<uint8_t>& map);
+    void drawGrayScale(TFT_eSPI& tft, size_t x, size_t y, const Matrix<uint8_t>& mat);
+    void drawGrayScale(TFT_eSPI& tft, size_t x, size_t y, const PrinterMatrix& mat);
 
     Matrix<uint8_t> GrayRescaled(Matrix<PIXELFORMAT_RGB>& mat, const float ratio);
 }

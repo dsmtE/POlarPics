@@ -66,6 +66,6 @@ uint8_t rgbToGrayscale(const PIXELFORMAT_RGB& pixel);
 Matrix<uint8_t> convertToGrayscale(const Matrix<PIXELFORMAT_RGB>& inMat);
 
 void errorDiffusion(Matrix<uint8_t>& mat, const float threshold = 0.5f, EFilteringMethod method = EFilteringMethod::floydSteinberg);
-PrinterMatrix errorDiffusionPrinter(Matrix<uint8_t>& mat, const float threshold, const EFilteringMethod method = EFilteringMethod::floydSteinberg);
+PrinterMatrix errorDiffusionPrinter(Matrix<uint8_t>& mat, const float threshold = 0.5f, const EFilteringMethod method = EFilteringMethod::floydSteinberg);
 
 }// namespace filtering

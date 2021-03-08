@@ -29,12 +29,21 @@ namespace utils {
         return static_cast<uint16_t>(r >> 3) << 11 | static_cast<uint16_t>(g >> 2) << 5 | static_cast<uint16_t>(b >> 3);
     }
 
-    void drawGrayScale(TFT_eSPI& tft, size_t x, size_t y, const Matrix<uint8_t>& map) {
-        for (size_t r = 0; r < map.height(); ++r) {
-            for (size_t c = 0; c < map.width(); ++c) {
-                const uint8_t grey = map(r, c);
+    void drawGrayScale(TFT_eSPI& tft, size_t x, size_t y, const Matrix<uint8_t>& mat) {
+        for (size_t r = 0; r < mat.height(); ++r) {
+            for (size_t c = 0; c < mat.width(); ++c) {
+                const uint8_t grey = mat(r, c);
                 tft.drawPixel(x + c, y + r, tft.color565(grey, grey, grey));
                 // 320*240
+            }
+        }
+    }
+
+    void drawGrayScale(TFT_eSPI& tft, size_t x, size_t y, const PrinterMatrix& mat) {
+        for (size_t r = 0; r < mat.height(); ++r) {
+            for (size_t c = 0; c < mat.width(); ++c) {
+                const uint8_t grey = mat(r, c) ? 255 : 0;
+                tft.drawPixel(x + c, y + r, tft.color565(grey, grey, grey));
             }
         }
     }
@@ -52,6 +61,7 @@ namespace utils {
         }
         return out;
     }
+
 
 }
 
