@@ -6,8 +6,11 @@
 #include "adalogo.h"
 #include "adaqrcode.h"
 
-// #define TX_PIN 1 // esp32 transmit  YELLOW WIRE  labeled RX on printer
-// #define RX_PIN 3 // esp32 receive   GREEN WIRE   labeled TX on printer
+#define TX_PIN 1 // esp32 transmit  YELLOW WIRE  labeled RX on printer
+#define RX_PIN 3 // esp32 receive   GREEN WIRE   labeled TX on printer
+
+// #define TX_PIN 14
+// #define RX_PIN 2
 
 HardwareSerial printerSerial(1);
 Adafruit_Thermal printer(&printerSerial); // Pass addr to printer constructor
@@ -18,11 +21,17 @@ void pTutTest(void);
 void test(void);
 
 void setup() {
-  printerSerial.begin(9600, SERIAL_8N1, 2, 14);
+  printerSerial.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
 
   printer.begin();
   delay(500);
   
+  testImg();
+  delay(2000);
+  test();
+  delay(2000);
+  pTutTest();
+  delay(2000);
   testImg();
 }
 
